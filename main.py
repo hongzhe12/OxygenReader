@@ -24,7 +24,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
 )
 from PySide6.QtCore import Qt, Signal, QObject
-from PySide6.QtGui import QFont, QColor, QIcon, QKeySequence, QAction
+from PySide6.QtGui import QFont, QIcon, QKeySequence, QAction
 
 
 # --- 资源路径处理 ---
@@ -41,8 +41,6 @@ if not os.path.exists(APP_DATA_DIR):
 
 HISTORY_FILE = os.path.join(APP_DATA_DIR, "bookshelf.json")
 CONFIG_FILE = os.path.join(APP_DATA_DIR, "config.json")
-
-
 
 
 class GlobalSignal(QObject):
@@ -72,10 +70,6 @@ class ConfigManager:
                 with open(CONFIG_FILE, "r", encoding="utf-8") as f:
                     saved = json.load(f)
                     self.config.update(saved)
-
-                current_title = self.config.get("window_title", "")
-                if "V0.0" in current_title or "氧气阅读器 V" in current_title:
-                    self.config["window_title"] = "氧气阅读器"
             except:
                 pass
 
