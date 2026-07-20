@@ -53,7 +53,7 @@ class GlobalSignal(QObject):
 class ConfigManager:
     def __init__(self):
         self.config = {
-            "window_title": "氧气阅读器",
+            "window_title": "二氧化碳阅读器",
             "font_size": 12,
             "text_color": "#505050",
             "bg_color": "#00000000",
@@ -97,6 +97,7 @@ class BookShelf:
 
     def update_progress(self, filepath, line_index):
         if filepath:
+            self.data.pop(filepath, None)
             self.data[filepath] = line_index
             self.save()
 
@@ -243,11 +244,11 @@ class ReaderWindow(QWidget):
             self.show_line()
 
     def mousePressEvent(self, e):
-        self.drag_pos = e.globalPos() - self.frameGeometry().topLeft()
+        self.drag_pos = e.globalPosition().toPoint() - self.frameGeometry().topLeft()
 
     def mouseMoveEvent(self, e):
         if e.buttons() & Qt.MouseButton.LeftButton and self.drag_pos:
-            self.move(e.globalPos() - self.drag_pos)
+            self.move(e.globalPosition().toPoint() - self.drag_pos)
 
 
 class ControlPanel(QWidget):
@@ -259,7 +260,7 @@ class ControlPanel(QWidget):
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
 
-        self.setWindowTitle(self.cfg.config.get("window_title", "氧气阅读器"))
+        self.setWindowTitle(self.cfg.config.get("window_title", "二氧化碳阅读器"))
         self.resize(600, 500)
 
         self.bookshelf = BookShelf()
@@ -274,6 +275,7 @@ class ControlPanel(QWidget):
         self.init_tray()
         self.init_ui()
         self.start_hooks()
+        self.auto_resume()
 
     def init_tray(self):
         self.tray_icon = QSystemTrayIcon(self)
@@ -379,6 +381,15 @@ class ControlPanel(QWidget):
         self.lbl_status = QLabel("拖入文件或点击 + 导入 添加书籍")
         layout.addWidget(self.lbl_status)
         self.setLayout(layout)
+
+    def auto_resume(self):
+        recent = self.bookshelf.get_recent_books()
+        if recent:
+            last = recent[-1]
+            self.reader.load_book(last)
+            self.lbl_status.setText(os.path.basename(last))
+            self.refresh_books()
+            self.start_reading()
 
     def toggle_settings(self):
         self.settings_panel.setVisible(self.btn_settings.isChecked())
@@ -505,7 +516,7 @@ class ControlPanel(QWidget):
             self.reader.activateWindow()
             self.hide()
             self.tray_icon.showMessage(
-                "氧气阅读器",
+                "二氧化碳阅读器",
                 "控制台已隐藏，文字已居中显示。",
                 QSystemTrayIcon.MessageIcon.Information,
                 2000,
@@ -521,6 +532,7 @@ class ControlPanel(QWidget):
             self.list_books.addItem(item)
 
 if __name__ == "__main__":
+    #  pyinstaller --noconfirm --onefile --windowed --icon "images/2352335.ico" --name "二氧化碳阅读器" "main.py" 
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     panel = ControlPanel()
