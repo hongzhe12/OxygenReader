@@ -61,7 +61,7 @@ class GlobalSignal(QObject):
 class ConfigManager:
     def __init__(self):
         self.config = {
-            "window_title": "Oxygen阅读器",
+            "window_title": "氧气阅读器",
             "font_size": 12,
             "text_color": "#505050",
             "bg_color": "#00000000",
@@ -81,8 +81,8 @@ class ConfigManager:
                     self.config.update(saved)
 
                 current_title = self.config.get("window_title", "")
-                if "V0.0" in current_title or "Oxygen阅读器 V" in current_title:
-                    self.config["window_title"] = "Oxygen阅读器"
+                if "V0.0" in current_title or "氧气阅读器 V" in current_title:
+                    self.config["window_title"] = "氧气阅读器"
             except:
                 pass
 
@@ -273,7 +273,7 @@ class ControlPanel(QWidget):
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
 
-        self.setWindowTitle(self.cfg.config.get("window_title", "Oxygen阅读器"))
+        self.setWindowTitle(self.cfg.config.get("window_title", "氧气阅读器"))
         self.resize(600, 500)
 
         self.bookshelf = BookShelf()
@@ -338,7 +338,7 @@ class ControlPanel(QWidget):
 
     def init_ui(self):
         main_layout = QVBoxLayout()
-        self.lbl_status = QLabel("Oxygen Reader 准备就绪")
+        self.lbl_status = QLabel("氧气阅读器 准备就绪")
         main_layout.addWidget(self.lbl_status)
 
         h1 = QHBoxLayout()
@@ -354,7 +354,7 @@ class ControlPanel(QWidget):
         grp_box.addWidget(QLabel("<b>伪装与外观:</b>"), 0, 0)
 
         self.inp_title = QLineEdit(self.cfg.config.get("window_title", ""))
-        self.inp_title.setPlaceholderText("Oxygen阅读器")
+        self.inp_title.setPlaceholderText("氧气阅读器")
         grp_box.addWidget(QLabel("窗口伪装名:"), 0, 1)
         grp_box.addWidget(self.inp_title, 0, 2)
 
@@ -529,7 +529,7 @@ class ControlPanel(QWidget):
             self.reader.activateWindow()
             self.hide()
             self.tray_icon.showMessage(
-                "Oxygen Reader",
+                "氧气阅读器",
                 "控制台已隐藏，文字已居中显示。",
                 QSystemTrayIcon.Information,
                 2000,
