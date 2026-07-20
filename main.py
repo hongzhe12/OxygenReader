@@ -338,8 +338,8 @@ class ControlPanel(QWidget):
 
     def init_ui(self):
         main_layout = QVBoxLayout()
-        self.lbl_status = QLabel("氧气阅读器 准备就绪")
-        main_layout.addWidget(self.lbl_status)
+        # self.lbl_status = QLabel("准备就绪")
+        # main_layout.addWidget(self.lbl_status)
 
         h1 = QHBoxLayout()
         btn_imp = QPushButton("导入书籍")
