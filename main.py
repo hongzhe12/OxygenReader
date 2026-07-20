@@ -1,11 +1,9 @@
 import sys
 import os
 import json
-import fitz  # PyMuPDF
-import keyboard  # 键盘监听
-import requests  # 网络请求
-from pynput import mouse  # 鼠标全局监听
-from PyQt5.QtWidgets import (
+import fitz
+import keyboard
+from PySide6.QtWidgets import (
     QApplication,
     QWidget,
     QVBoxLayout,
@@ -16,19 +14,17 @@ from PyQt5.QtWidgets import (
     QHBoxLayout,
     QMessageBox,
     QListWidget,
+    QListWidgetItem,
     QColorDialog,
     QSpinBox,
     QGridLayout,
     QSystemTrayIcon,
     QMenu,
-    QAction,
     QStyle,
-    qApp,
     QCheckBox,
-    QDesktopWidget,
 )
-from PyQt5.QtCore import Qt, pyqtSignal, QObject
-from PyQt5.QtGui import QFont, QColor, QIcon, QKeySequence
+from PySide6.QtCore import Qt, Signal, QObject
+from PySide6.QtGui import QFont, QColor, QIcon, QKeySequence, QAction
 
 
 # --- 资源路径处理 ---
@@ -39,23 +35,21 @@ def resource_path(relative_path):
 
 
 # --- 配置区域 ---
-APP_DATA_DIR = os.path.join(os.getenv("APPDATA"), "OxygenReaderData")
+APP_DATA_DIR = os.path.join(os.environ["APPDATA"], "OxygenReaderData")
 if not os.path.exists(APP_DATA_DIR):
     os.makedirs(APP_DATA_DIR)
 
 HISTORY_FILE = os.path.join(APP_DATA_DIR, "bookshelf.json")
 CONFIG_FILE = os.path.join(APP_DATA_DIR, "config.json")
 
-# 版本号
-CURRENT_VERSION = "V1.1.2"
+
 
 
 class GlobalSignal(QObject):
-    hide_signal = pyqtSignal()
-    show_signal = pyqtSignal()
-    next_signal = pyqtSignal()
-    prev_signal = pyqtSignal()
-    update_style_signal = pyqtSignal()
+    toggle_signal = Signal()
+    next_signal = Signal()
+    prev_signal = Signal()
+    update_style_signal = Signal()
 
 
 class ConfigManager:
@@ -65,10 +59,9 @@ class ConfigManager:
             "font_size": 12,
             "text_color": "#505050",
             "bg_color": "#00000000",
-            "key_next": "t",
-            "key_prev": "q",
-            "key_boss": "ctrl+shift+q",
-            "key_wake": "ctrl+shift+f",
+            "key_next": "down",
+            "key_prev": "up",
+            "key_toggle": "F3",
             "focus_anchor": True,
         }
         self.load()
@@ -128,18 +121,18 @@ class HotkeyLineEdit(QLineEdit):
 
     def keyPressEvent(self, event):
         key = event.key()
-        if key == Qt.Key_Backspace or key == Qt.Key_Delete:
+        if key in (Qt.Key.Key_Backspace, Qt.Key.Key_Delete):
             self.setText("")
             return
-        if key in (Qt.Key_Control, Qt.Key_Shift, Qt.Key_Alt, Qt.Key_Meta):
+        if key in (Qt.Key.Key_Control, Qt.Key.Key_Shift, Qt.Key.Key_Alt, Qt.Key.Key_Meta):
             return
         modifiers = event.modifiers()
         keys = []
-        if modifiers & Qt.ControlModifier:
+        if modifiers & Qt.KeyboardModifier.ControlModifier:
             keys.append("ctrl")
-        if modifiers & Qt.ShiftModifier:
+        if modifiers & Qt.KeyboardModifier.ShiftModifier:
             keys.append("shift")
-        if modifiers & Qt.AltModifier:
+        if modifiers & Qt.KeyboardModifier.AltModifier:
             keys.append("alt")
         key_text = QKeySequence(key).toString().lower()
         if key_text == "return":
@@ -173,13 +166,13 @@ class ReaderWindow(QWidget):
         if os.path.exists(icon_path):
             self.setWindowIcon(QIcon(icon_path))
 
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
-        self.setAttribute(Qt.WA_TranslucentBackground)
-        self.layout = QVBoxLayout()
-        self.layout.setContentsMargins(10, 5, 10, 5)
+        self.setWindowFlags(Qt.WindowType.FramelessWindowHint | Qt.WindowType.WindowStaysOnTopHint | Qt.WindowType.Tool)
+        self.setAttribute(Qt.WidgetAttribute.WA_TranslucentBackground)
+        layout = QVBoxLayout()
+        layout.setContentsMargins(10, 5, 10, 5)
         self.text_label = QLabel("按 Ctrl+Shift+F 唤醒")
-        self.layout.addWidget(self.text_label)
-        self.setLayout(self.layout)
+        layout.addWidget(self.text_label)
+        self.setLayout(layout)
         self.content_lines = []
         self.current_index = 0
         self.drag_pos = None
@@ -256,11 +249,10 @@ class ReaderWindow(QWidget):
             self.show_line()
 
     def mousePressEvent(self, e):
-        if e.button() == Qt.RightButton:
-            self.drag_pos = e.globalPos() - self.frameGeometry().topLeft()
+        self.drag_pos = e.globalPos() - self.frameGeometry().topLeft()
 
     def mouseMoveEvent(self, e):
-        if e.buttons() == Qt.RightButton and self.drag_pos:
+        if e.buttons() & Qt.MouseButton.LeftButton and self.drag_pos:
             self.move(e.globalPos() - self.drag_pos)
 
 
@@ -280,14 +272,7 @@ class ControlPanel(QWidget):
         self.reader = ReaderWindow(self.bookshelf, self.cfg)
         self.comm = GlobalSignal()
 
-        self.comm.hide_signal.connect(self.reader.hide)
-        self.comm.show_signal.connect(
-            lambda: (
-                (self.reader.show(), self.reader.activateWindow())
-                if self.reader.current_file
-                else None
-            )
-        )
+        self.comm.toggle_signal.connect(self.toggle_reader)
         self.comm.update_style_signal.connect(self.reader.apply_style)
         self.comm.next_signal.connect(self.reader.next_line)
         self.comm.prev_signal.connect(self.reader.prev_line)
@@ -302,21 +287,21 @@ class ControlPanel(QWidget):
         if os.path.exists(icon_path):
             self.tray_icon.setIcon(QIcon(icon_path))
         else:
-            self.tray_icon.setIcon(self.style().standardIcon(QStyle.SP_ComputerIcon))
+            self.tray_icon.setIcon(self.style().standardIcon(QStyle.StandardPixmap.SP_ComputerIcon))
 
         tray_menu = QMenu()
         action_show = QAction("显示控制台", self)
         action_show.triggered.connect(self.showNormal)
         tray_menu.addAction(action_show)
         action_quit = QAction("退出", self)
-        action_quit.triggered.connect(qApp.quit)
+        action_quit.triggered.connect(QApplication.quit)
         tray_menu.addAction(action_quit)
         self.tray_icon.setContextMenu(tray_menu)
         self.tray_icon.activated.connect(self.on_tray_click)
         self.tray_icon.show()
 
     def on_tray_click(self, reason):
-        if reason == QSystemTrayIcon.Trigger:
+        if reason == QSystemTrayIcon.ActivationReason.Trigger:
             if self.isVisible():
                 self.hide()
             else:
@@ -329,7 +314,7 @@ class ControlPanel(QWidget):
             self.tray_icon.showMessage(
                 "提示",
                 "已缩略至系统托盘，右键托盘图标可退出。",
-                QSystemTrayIcon.Information,
+                QSystemTrayIcon.MessageIcon.Information,
                 2000,
             )
             event.ignore()
@@ -337,97 +322,101 @@ class ControlPanel(QWidget):
             event.accept()
 
     def init_ui(self):
-        main_layout = QVBoxLayout()
-        # self.lbl_status = QLabel("准备就绪")
-        # main_layout.addWidget(self.lbl_status)
+        self.setAcceptDrops(True)
+        layout = QVBoxLayout()
+        layout.setContentsMargins(8, 8, 8, 8)
 
-        h1 = QHBoxLayout()
-        btn_imp = QPushButton("导入书籍")
+        top = QHBoxLayout()
+        btn_imp = QPushButton("+ 导入")
         btn_imp.clicked.connect(self.import_book)
-        h1.addWidget(btn_imp)
-        btn_run = QPushButton("开始阅读")
-        btn_run.clicked.connect(self.start_reading)
-        h1.addWidget(btn_run)
-        main_layout.addLayout(h1)
+        top.addWidget(btn_imp)
+        top.addStretch()
+        self.btn_settings = QPushButton("设置")
+        self.btn_settings.setCheckable(True)
+        self.btn_settings.clicked.connect(self.toggle_settings)
+        top.addWidget(self.btn_settings)
+        layout.addLayout(top)
 
-        grp_box = QGridLayout()
-        grp_box.addWidget(QLabel("<b>伪装与外观:</b>"), 0, 0)
-
-        self.inp_title = QLineEdit(self.cfg.config.get("window_title", ""))
-        self.inp_title.setPlaceholderText("氧气阅读器")
-        grp_box.addWidget(QLabel("窗口伪装名:"), 0, 1)
-        grp_box.addWidget(self.inp_title, 0, 2)
+        self.settings_panel = QWidget()
+        self.settings_panel.setVisible(False)
+        sg = QGridLayout(self.settings_panel)
+        sg.setContentsMargins(0, 4, 0, 4)
+        sg.setVerticalSpacing(4)
 
         self.spin_font = QSpinBox()
         self.spin_font.setRange(8, 72)
         self.spin_font.setValue(int(self.cfg.config["font_size"]))
         self.spin_font.valueChanged.connect(self.save_appearance)
-        grp_box.addWidget(QLabel("字号:"), 0, 3)
-        grp_box.addWidget(self.spin_font, 0, 4)
-
-        btn_col_txt = QPushButton("文字颜色")
+        sg.addWidget(QLabel("字号"), 0, 0)
+        sg.addWidget(self.spin_font, 0, 1)
+        btn_col_txt = QPushButton("文字色")
         btn_col_txt.clicked.connect(lambda: self.pick_color("text_color"))
-        grp_box.addWidget(btn_col_txt, 1, 3)
-        btn_col_bg = QPushButton("背景颜色")
+        sg.addWidget(btn_col_txt, 0, 2)
+        btn_col_bg = QPushButton("背景色")
         btn_col_bg.clicked.connect(lambda: self.pick_color("bg_color"))
-        grp_box.addWidget(btn_col_bg, 1, 4)
-
-        self.chk_focus = QCheckBox("启用聚焦引导(启动时红字居中)")
+        sg.addWidget(btn_col_bg, 0, 3)
+        self.chk_focus = QCheckBox("聚焦引导")
         self.chk_focus.setChecked(self.cfg.config.get("focus_anchor", True))
         self.chk_focus.toggled.connect(self.toggle_focus)
-        grp_box.addWidget(self.chk_focus, 1, 0, 1, 3)
+        sg.addWidget(self.chk_focus, 0, 4)
 
-        grp_box.addWidget(QLabel("<b>快捷键 (点框按下按键自动录入):</b>"), 2, 0)
         self.inp_next = HotkeyLineEdit(self.cfg.config["key_next"])
-        grp_box.addWidget(QLabel("下一行:"), 2, 1)
-        grp_box.addWidget(self.inp_next, 2, 2)
+        sg.addWidget(QLabel("下一行"), 1, 0)
+        sg.addWidget(self.inp_next, 1, 1)
         self.inp_prev = HotkeyLineEdit(self.cfg.config["key_prev"])
-        grp_box.addWidget(QLabel("上一行:"), 2, 3)
-        grp_box.addWidget(self.inp_prev, 2, 4)
-        self.inp_boss = HotkeyLineEdit(self.cfg.config["key_boss"])
-        grp_box.addWidget(QLabel("老板键(隐):"), 3, 1)
-        grp_box.addWidget(self.inp_boss, 3, 2)
-        self.inp_wake = HotkeyLineEdit(self.cfg.config["key_wake"])
-        grp_box.addWidget(QLabel("唤醒键(显):"), 3, 3)
-        grp_box.addWidget(self.inp_wake, 3, 4)
-
-        btn_layout = QHBoxLayout()
-        btn_apply = QPushButton("应用全部设置")
+        sg.addWidget(QLabel("上一行"), 1, 2)
+        sg.addWidget(self.inp_prev, 1, 3)
+        self.inp_toggle = HotkeyLineEdit(self.cfg.config["key_toggle"])
+        sg.addWidget(QLabel("切换"), 1, 4)
+        sg.addWidget(self.inp_toggle, 1, 5)
+        btn_apply = QPushButton("应用")
         btn_apply.clicked.connect(self.apply_settings)
-        btn_reset = QPushButton("重置默认按键")
+        btn_reset = QPushButton("重置")
         btn_reset.clicked.connect(self.reset_default_keys)
-        btn_layout.addWidget(btn_apply)
-        btn_layout.addWidget(btn_reset)
-        grp_box.addLayout(btn_layout, 4, 0, 1, 5)
+        sg.addWidget(btn_apply, 1, 6)
+        sg.addWidget(btn_reset, 1, 7)
 
-        main_layout.addLayout(grp_box)
-        main_layout.addWidget(QLabel("书架 (数据已保存至系统，删除软件不丢失):"))
+        layout.addWidget(self.settings_panel)
+        layout.addWidget(QLabel("书架"))
         self.list_books = QListWidget()
-        self.list_books.itemDoubleClicked.connect(
-            lambda item: (
-                self.reader.load_book(item.text()),
-                self.lbl_status.setText(f"当前: {os.path.basename(item.text())}"),
-                self.start_reading(),
-            )
-        )
+        self.list_books.itemDoubleClicked.connect(self.on_book_activated)
         self.refresh_books()
-        main_layout.addWidget(self.list_books)
-        main_layout.addWidget(
-            QLabel("提示: 点击右上角X会自动隐藏到系统托盘(右下角图标)。")
-        )
+        layout.addWidget(self.list_books, 1)
+        self.lbl_status = QLabel("拖入文件或点击 + 导入 添加书籍")
+        layout.addWidget(self.lbl_status)
+        self.setLayout(layout)
 
-        self.setLayout(main_layout)
+    def toggle_settings(self):
+        self.settings_panel.setVisible(self.btn_settings.isChecked())
+
+    def on_book_activated(self, item):
+        path = item.data(Qt.ItemDataRole.UserRole)
+        self.reader.load_book(path)
+        self.lbl_status.setText(os.path.basename(path))
+        self.start_reading()
+
+    def dragEnterEvent(self, e):
+        if e.mimeData().hasUrls():
+            e.acceptProposedAction()
+
+    def dropEvent(self, e):
+        for url in e.mimeData().urls():
+            path = url.toLocalFile()
+            if any(path.lower().endswith(ext) for ext in (".txt", ".pdf", ".epub", ".mobi", ".azw3")):
+                self.reader.load_book(path)
+                self.lbl_status.setText(os.path.basename(path))
+                self.refresh_books()
+                break
 
     def start_hooks(self):
-        self.mouse_listener = mouse.Listener(
-            on_click=lambda x, y, b, p: (
-                self.comm.hide_signal.emit()
-                if (p and b == mouse.Button.left and self.reader.isVisible())
-                else None
-            )
-        )
-        self.mouse_listener.start()
         self.bind_keys(silent=True)
+
+    def toggle_reader(self):
+        if self.reader.isVisible():
+            self.reader.hide()
+        elif self.reader.current_file:
+            self.reader.show()
+            self.reader.activateWindow()
 
     def bind_keys(self, silent=False):
         keyboard.unhook_all()
@@ -449,8 +438,7 @@ class ControlPanel(QWidget):
                     else keyboard.send(c["key_prev"])
                 ),
             )
-            keyboard.add_hotkey(c["key_boss"], self.comm.hide_signal.emit)
-            keyboard.add_hotkey(c["key_wake"], self.comm.show_signal.emit)
+            keyboard.add_hotkey(c["key_toggle"], self.comm.toggle_signal.emit)
             if not silent:
                 QMessageBox.information(self, "成功", "快捷键已生效！")
         except Exception as e:
@@ -458,10 +446,9 @@ class ControlPanel(QWidget):
                 QMessageBox.warning(self, "错误", f"快捷键冲突或格式错误: {e}")
 
     def reset_default_keys(self):
-        self.inp_next.setText("t")
-        self.inp_prev.setText("q")
-        self.inp_boss.setText("ctrl+shift+q")
-        self.inp_wake.setText("ctrl+shift+f")
+        self.inp_next.setText("down")
+        self.inp_prev.setText("up")
+        self.inp_toggle.setText("F3")
         self.apply_settings()
         QMessageBox.information(self, "提示", "快捷键已重置为默认设置！")
 
@@ -474,10 +461,10 @@ class ControlPanel(QWidget):
         if col.isValid():
             if key == "bg_color":
                 reply = QMessageBox.question(
-                    self, "背景", "是否设为完全透明?", QMessageBox.Yes | QMessageBox.No
+                    self, "背景", "是否设为完全透明?", QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No
                 )
                 self.cfg.config[key] = (
-                    "#00000000" if reply == QMessageBox.Yes else col.name()
+                    "#00000000" if reply == QMessageBox.StandardButton.Yes else col.name()
                 )
             else:
                 self.cfg.config[key] = col.name()
@@ -493,12 +480,7 @@ class ControlPanel(QWidget):
         c = self.cfg.config
         c["key_next"] = self.inp_next.text()
         c["key_prev"] = self.inp_prev.text()
-        c["key_boss"] = self.inp_boss.text()
-        c["key_wake"] = self.inp_wake.text()
-        new_title = self.inp_title.text()
-        if new_title:
-            c["window_title"] = new_title
-            self.setWindowTitle(new_title)
+        c["key_toggle"] = self.inp_toggle.text()
         self.cfg.save()
         self.bind_keys()
 
@@ -508,7 +490,7 @@ class ControlPanel(QWidget):
         )
         if path:
             self.reader.load_book(path)
-            self.lbl_status.setText(f"当前: {os.path.basename(path)}")
+            self.lbl_status.setText(os.path.basename(path))
             self.refresh_books()
 
     def start_reading(self):
@@ -517,7 +499,7 @@ class ControlPanel(QWidget):
             self.reader.show_line()
             if self.cfg.config.get("focus_anchor", True):
                 self.reader.adjustSize()
-                screen = QDesktopWidget().screenGeometry()
+                screen = self.screen().geometry()
                 size = self.reader.geometry()
                 new_x = (screen.width() - size.width()) // 2
                 new_y = (screen.height() - size.height()) // 2
@@ -531,7 +513,7 @@ class ControlPanel(QWidget):
             self.tray_icon.showMessage(
                 "氧气阅读器",
                 "控制台已隐藏，文字已居中显示。",
-                QSystemTrayIcon.Information,
+                QSystemTrayIcon.MessageIcon.Information,
                 2000,
             )
         else:
@@ -539,17 +521,14 @@ class ControlPanel(QWidget):
 
     def refresh_books(self):
         self.list_books.clear()
-        [self.list_books.addItem(k) for k in self.bookshelf.get_recent_books()]
-
-    def closeEvent(self, e):
-        if self.tray_icon.isVisible():
-            self.hide()
-            e.ignore()
-
+        for k in self.bookshelf.get_recent_books():
+            item = QListWidgetItem(os.path.basename(k))
+            item.setData(Qt.ItemDataRole.UserRole, k)
+            self.list_books.addItem(item)
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
     app.setQuitOnLastWindowClosed(False)
     panel = ControlPanel()
     panel.show()
-    sys.exit(app.exec_())
+    sys.exit(app.exec())
